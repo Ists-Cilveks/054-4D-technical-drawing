@@ -2,7 +2,7 @@
 <html lang="en" dir="ltr">
 <head>
   <meta charset="utf-8">
-  <title>Tilable squareflake growth</title>
+  <title>4D technical drawing</title>
   <style media="screen">
     /* TODO: too many different units (vh, rem, px) */
 
@@ -475,13 +475,13 @@
         leafy: new Gradient([colors.veryDarkGreen, 0, colors.green, 0.5, colors.yellow, 1]),
         rainbow: new Gradient([colors.black, 0, colors.red, 0.1, colors.yellow, 0.26, colors.green, 0.42, colors.cyan, 0.58, colors.blue, 0.74, colors.magenta, 0.9, colors.white, 1]),
         natural: new Gradient([colors.black, 0, colors.green, 0.6, colors.yellow, 0.8, colors.white, 0.9, colors.red, 1]),
-        tech: new Gradient([colors.black, 0, colors.darkBlue, 0.3, colors.cyan, 0.6, colors.white, 1]),
+        Tech: new Gradient([colors.black, 0, colors.darkBlue, 0.3, colors.cyan, 0.6, colors.white, 1]),
         flame: new Gradient([colors.black, 0, colors.darkBlue, 0.1, colors.white, 0.24, colors.yellow, 0.38, colors.red, 0.7, colors.black, 1]),
         middleBand: new Gradient([colors.black, 0.4, colors.white, 0.401, colors.white, 0.599, colors.black, 0.6]),
         middleNarrowBand: new Gradient([colors.white, 0.47, colors.black, 0.472, colors.black, 0.528, colors.white, 0.53]),
         blendingTest: new Gradient([colors.red, 0, colors.green, 1])
       }
-      var useGradient=gradients.tech;
+      var useGradient=gradients.Tech;
 
       // var takeColors=[[255,255,0],
       //   [213, 94, 0],
@@ -590,6 +590,9 @@
       this.rotate=function(a) {
         return new Vec2(this.x*Math.cos(a)-this.y*Math.sin(a), this.x*Math.sin(a)+this.y*Math.cos(a));
       }
+      this.negateY=function() {
+        return new Vec2(this.x, -this.y);
+      }
     }
     function Vec2FromAngleAndLength(ang, len=1) {
       return new Vec2(len*Math.cos(ang), len*Math.sin(ang));
@@ -617,7 +620,7 @@
     function drawRing(x, y, r=7, ctx=context) {
       ctx.beginPath();
       let screenPos=new Vec2(x, y).screen();
-      ctx.moveTo(screenPos.x, screenPos.y);
+      // ctx.moveTo(screenPos.x, screenPos.y);
       ctx.arc(screenPos.x, screenPos.y, r/2+0.5, 0, TAU);
       ctx.stroke();
     }
@@ -649,6 +652,9 @@
       }
       this.unit=function() {
         return this.mult(1/this.len());
+      }
+      this.cross=function(v) {
+        return new Vec3(this.y*v.z-this.z*v.y, this.z*v.x-this.x*v.z, this.x*v.y-this.y*v.x);
       }
       
       
@@ -691,15 +697,25 @@
       // 'yVec': new Vec3(0.2,0.3,1).unit(),
       'xVec': new Vec3(),
       'yVec': new Vec3(),
+      'camVec': new Vec3(),
       'project': function(p) {
         return new Vec2(this.xVec.dot(p), this.yVec.dot(p));
       },
       'screen': function(p) {
         return this.project(p).screen();
       },
+      'setCamVec': function() {
+        this.camVec=this.xVec.cross(this.yVec).unit();
+      },
+      'camDistance': function(p) {
+        return this.camVec.dot(p);
+      },
+      'camAngle': function(p) {//angle between camera direction and point. angle==0 => looking straight at the point
+        return Math.acos(this.camDistance(p.unit()));
+      },
     }
     
-    function techProjection(xVec, yVec, zVec) {
+    function TechProjection(xVec, yVec, zVec) {//one of 4 projections from 4d (the native space of the shapes) to 3d (the space in which the drawing exists)
       this.xVec=xVec
       this.yVec=yVec
       this.zVec=zVec
@@ -709,91 +725,210 @@
       }
       return this;
     }
-    var techProjections=[
-      new techProjection(
+    var TechProjections=[
+      new TechProjection(
         new Vec4( 1,  0,  0,  0),
         new Vec4( 0,  1,  0,  0),
         new Vec4( 0,  0,  1,  0),
       ),
-      new techProjection(
+      new TechProjection(
         new Vec4( 0,  0,  0, -1),
         new Vec4( 0,  1,  0,  0),
         new Vec4( 0,  0,  1,  0),
       ),
-      new techProjection(
+      new TechProjection(
         new Vec4( 1,  0,  0,  0),
         new Vec4( 0,  0,  0, -1),
         new Vec4( 0,  0,  1,  0),
       ),
-      new techProjection(
+      new TechProjection(
         new Vec4( 1,  0,  0,  0),
         new Vec4( 0,  1,  0,  0),
         new Vec4( 0,  0,  0, -1),
       ),
+      // TODO: add a fifth "perspective" projection?
     ]
     
-    function techPoint(pos, color="#ff0033") {
+    
+    
+    function TechHelperLine(p1, p2, color="#00ff33") {//a 3d helper line to show correspondences between dimensions
+      this.p1=p1
+      this.p2=p2
+      this.color=color
+      this.draw=function() {
+        context.strokeStyle=this.color
+        context.lineWidth=1
+        drawLine(cam.project(this.p1),cam.project(this.p2))
+      }
+      this.drawIndex=function() {return this.p1.add(this.p2).mult(0.5);}
+      return this;
+    }
+    function TechProjectedPoint(pos, color="#3300ff") {//a 3d point in a particular projection
       this.pos=pos
       this.color=color
       this.draw=function() {
         context.strokeStyle=this.color
-        context.fillStyle=this.color
-        context.lineWidth=1
-        
-        let tempPoint
-        let projPoints=techProjections.map(p => p.apply(this.pos))
-        drawLine(cam.project(projPoints[0]),cam.project(projPoints[1]))
-        drawLine(cam.project(projPoints[0]),cam.project(projPoints[2]))
-        drawLine(cam.project(projPoints[0]),cam.project(projPoints[3]))
-        tempPoint=projPoints[1].copy(); tempPoint.y=-this.pos.w;
-        drawLine(cam.project(projPoints[1]),cam.project(tempPoint))
-        drawLine(cam.project(projPoints[2]),cam.project(tempPoint))
-        tempPoint=projPoints[2].copy(); tempPoint.z=-this.pos.w;
-        drawLine(cam.project(projPoints[2]),cam.project(tempPoint))
-        drawLine(cam.project(projPoints[3]),cam.project(tempPoint))
-        tempPoint=projPoints[3].copy(); tempPoint.x=-this.pos.w;
-        drawLine(cam.project(projPoints[3]),cam.project(tempPoint))
-        drawLine(cam.project(projPoints[1]),cam.project(tempPoint))
-        
-        
         context.lineWidth=2
-        for (var projection of techProjections) {
-          let projPoint=projection.apply(this.pos)
-          
-          let screenPos=cam.screen(projPoint)
-          // context.fillRect(screenPos.x, screenPos.y, 4, 4)
-          drawRing(cam.project(projPoint).x, cam.project(projPoint).y)
+        drawRing(cam.project(this.pos).x, cam.project(this.pos).y)
+      }
+      this.drawIndex=function() {return this.pos;}
+      return this;
+    }
+    
+    function TechPoint(pos, color="#ff0033", drawHelpers=true) {//a 4d point with corresponding helper lines
+      this.pos=pos
+      this.color=color
+      this.getDrawables=function() {
+        let res = []
+        
+        if (drawHelpers) {
+          let tempPoint
+          let projPoints=TechProjections.map(p => p.apply(this.pos))
+          res.push(new TechHelperLine(projPoints[0], projPoints[1], this.color))
+          res.push(new TechHelperLine(projPoints[0], projPoints[2], this.color))
+          res.push(new TechHelperLine(projPoints[0], projPoints[3], this.color))
+          tempPoint=projPoints[1].copy(); tempPoint.y=-this.pos.w;
+          res.push(new TechHelperLine(projPoints[1], tempPoint, this.color))
+          res.push(new TechHelperLine(projPoints[2], tempPoint, this.color))
+          tempPoint=projPoints[2].copy(); tempPoint.z=-this.pos.w;
+          res.push(new TechHelperLine(projPoints[2], tempPoint, this.color))
+          res.push(new TechHelperLine(projPoints[3], tempPoint, this.color))
+          tempPoint=projPoints[3].copy(); tempPoint.x=-this.pos.w;
+          res.push(new TechHelperLine(projPoints[3], tempPoint, this.color))
+          res.push(new TechHelperLine(projPoints[1], tempPoint, this.color))
         }
         
+        
+        for (var projection of TechProjections) {
+          let projPoint=projection.apply(this.pos)
+          
+          // let screenPos=cam.screen(projPoint)
+          // context.fillRect(screenPos.x, screenPos.y, 4, 4)
+          res.push(new TechProjectedPoint(projPoint, this.color))
+          // drawRing(cam.project(projPoint).x, cam.project(projPoint).y)
+        }
+        
+        return res;
       }
+      // this.drawIndex=function() {return this.pos;}
+      return this;
+    }
+    
+    function TechArrow(startPos, endPos, color="#000") {//a 3d arrow for showing projection axes
+      this.startPos=startPos
+      this.endPos=endPos
+      let arrowheadLength=0.05
+      this.connectionPos=this.startPos.add(this.endPos.sub(this.startPos).mult((this.endPos.sub(this.startPos).len()-arrowheadLength)/this.endPos.sub(this.startPos).len()))
+      this.color=color
+      this.draw=function() {
+        context.strokeStyle=this.color
+        context.fillStyle=this.color
+        context.lineWidth=2
+        let ellipseRadius=4
+        
+        drawLine(cam.project(this.startPos),cam.project(this.connectionPos))
+        
+        let ellipseCenter = cam.screen(this.connectionPos)
+        let ellipseSkewness = Math.abs(cam.camVec.dot(this.connectionPos.sub(this.startPos)))
+        let ellipseAngle = cam.project(this.connectionPos.sub(this.startPos)).ang()
+        context.beginPath();
+        context.ellipse(ellipseCenter.x, ellipseCenter.y, ellipseRadius*ellipseSkewness, ellipseRadius, -ellipseAngle, 0, 2 * Math.PI);
+        context.fill();
+        
+        let triangleTop=cam.screen(this.endPos.sub(this.startPos))
+        let triangleBase=cam.screen(this.connectionPos.sub(this.startPos))
+        let triangleLeft=triangleBase.add(cam.project(this.endPos.sub(this.startPos)).unit().rotate(HPI).mult(ellipseRadius).negateY())
+        let triangleRight=triangleBase.add(cam.project(this.endPos.sub(this.startPos)).unit().rotate(-HPI).mult(ellipseRadius).negateY())
+        
+        context.beginPath();
+        context.moveTo(triangleTop.x, triangleTop.y);
+        context.lineTo(triangleRight.x, triangleRight.y);
+        context.lineTo(triangleLeft.x, triangleLeft.y);
+        context.fill();
+        
+      }
+      this.drawIndex=function() {return this.connectionPos;}
+      return this;
+    }
+    function TechSymmetryLine(p1, p2, color="#000") {//a 3d dash-dot line for showing symmetries
+      this.p1=p1
+      this.p2=p2
+      this.color=color
+      this.draw=function() {
+        context.strokeStyle=this.color
+        context.fillStyle=this.color
+        context.lineWidth=2
+        let dashMultiplier=cam.project(this.p2.sub(this.p1).unit()).len()
+        context.setLineDash([15*dashMultiplier, 8*dashMultiplier, 3*dashMultiplier, 8*dashMultiplier]);
+        drawLine(cam.project(this.p1),cam.project(this.p2))
+        context.setLineDash([]);
+      }
+      this.drawIndex=function() {return this.p1.add(this.p2).mult(0.5);}
       return this;
     }
     
     var drawables=[]
     
+    drawables.push(new TechArrow(new Vec3(0,0,0), new Vec3(-1,0,0), "yellow"))
+    drawables.push(new TechArrow(new Vec3(0,0,0), new Vec3(0,-1,0), "yellow"))
+    drawables.push(new TechArrow(new Vec3(0,0,0), new Vec3(0,0,-1), "yellow"))
+    drawables.push(new TechArrow(new Vec3(0,0,0), new Vec3(1,0,0), "red"))
+    drawables.push(new TechArrow(new Vec3(0,0,0), new Vec3(0,1,0), "green"))
+    drawables.push(new TechArrow(new Vec3(0,0,0), new Vec3(0,0,1), "blue"))
+    
     for (var i = 0; i < 20; i++) {
       let pos = new Vec4(randRange(0.2, 0.8), randRange(0.2, 0.8), randRange(0.2, 0.8), randRange(0.2, 0.8))
-      pos.x=0.5-(pos.x-0.5)*(0.8-pos.z)
-      pos.y=0.5-(pos.y-0.5)*(0.8-pos.z)
-      pos.w=0.5-(pos.w-0.5)*(0.8-pos.z)
-      drawables.push(new techPoint(
+      pos.x=0.5-(pos.x-0.5)*(0.8-pos.z)/(0.6)
+      // pos.y=0.5-(pos.y-0.5)*(0.8-pos.z)/(0.6)
+      pos.w=0.5-(pos.w-0.5)*(0.8-pos.z)/(0.6)
+      // drawables.push(new TechPoint(
+      // drawables.push(new TechProjectedPoint(
+      //   pos,
+      //   randColorString(),
+      //   false,
+      // ))
+      drawables=drawables.concat(new TechPoint(
         pos,
-        randColorString()
-      ))
+        randColorString(),
+        true,
+      ).getDrawables())
     }
+    // drawables.push(new TechSymmetryLine(new Vec3(0.5,0.1,0.2), new Vec3(0.5,0.9,0.2)))
+    // drawables.push(new TechSymmetryLine(new Vec3(0.1,0.5,0.2), new Vec3(0.9,0.5,0.2)))
+    // drawables.push(new TechSymmetryLine(new Vec3(-0.5,0.1,0.2), new Vec3(-0.5,0.9,0.2)))
+    // drawables.push(new TechSymmetryLine(new Vec3(-0.9,0.5,0.2), new Vec3(-0.1,0.5,0.2)))
+    // drawables.push(new TechSymmetryLine(new Vec3(0.5,-0.9,0.2), new Vec3(0.5,-0.1,0.2)))
+    // drawables.push(new TechSymmetryLine(new Vec3(0.1,-0.5,0.2), new Vec3(0.9,-0.5,0.2)))
+    drawables.push(new TechSymmetryLine(new Vec3(0.5,0.5,0.1), new Vec3(0.5,0.5,0.9)))
+    drawables.push(new TechSymmetryLine(new Vec3(-0.5,0.5,0.1), new Vec3(-0.5,0.5,0.9)))
+    drawables.push(new TechSymmetryLine(new Vec3(0.5,-0.5,0.1), new Vec3(0.5,-0.5,0.9)))
+    drawables.push(new TechSymmetryLine(new Vec3(0.5,0.5,-0.1), new Vec3(0.5,0.5,-0.9)))
+    drawables.push(new TechSymmetryLine(new Vec3(0.1,0.5,-0.5), new Vec3(0.9,0.5,-0.5)))
+    drawables.push(new TechSymmetryLine(new Vec3(0.5,0.1,-0.5), new Vec3(0.5,0.9,-0.5)))
     
     
     
-    
-    function update() {//main loop, runs every frame, handles user drawing
+    function update() {//main loop, runs every frame, handles drawing
       if (!paused) {
         if (fReqs>=frameSkip) {
           let spinAng=mousePos.x/canvas.width*TAU
           let spinVertical=2*(1-2*mousePos.y/canvas.height)
           cam.xVec=new Vec3(Math.cos(spinAng), Math.sin(spinAng), 0).unit()
           cam.yVec=new Vec3(-Math.sin(spinAng)*Math.sin(spinVertical), Math.cos(spinAng)*Math.sin(spinVertical), Math.cos(spinVertical)).unit()
+          // cam.camVec=new Vec3(-Math.sin(spinAng)*Math.sin(spinVertical), Math.cos(spinAng)*Math.sin(spinVertical), Math.cos(spinVertical)).unit()
+          cam.setCamVec()
           
           context.clearRect(0, 0, canvas.width, height);
+          context.lineCap="round"
+          
+          // console.log(drawables[0].drawIndex().sub(drawables[1].drawIndex()).dot(cam.camVec));
+          function comp(a, b) {
+            // if (Number.isNaN(a.drawIndex().sub(b.drawIndex()).dot(cam.camVec))) {
+            //   console.log(a.drawIndex().sub(b.drawIndex()), (cam.camVec));
+            // }
+            return b.drawIndex().sub(a.drawIndex()).dot(cam.camVec);
+          }
+          drawables.sort(comp)
           for (var d of drawables) {
             d.draw()
           }
